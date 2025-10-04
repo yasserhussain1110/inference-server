@@ -119,7 +119,7 @@ async def infer(req: InferenceRequest):
 
 
 @app.get("/test")
-async def hello(req: InferenceRequest):
+async def hello():
     return {"result": "hello"}
 
 # ------------------------
