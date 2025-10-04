@@ -3,8 +3,10 @@ from fastapi import FastAPI
 from pydantic import BaseModel
 import asyncio
 import hashlib
-import aioredis
-import openai
+from typing import List
+from openai import AsyncOpenAI
+
+aclient = AsyncOpenAI()
 
 # ------------------------
 # FastAPI app
@@ -16,20 +18,19 @@ class InferenceRequest(BaseModel):
     model_flag: str  # "openai" or "local"
 
 # ------------------------
-# Redis cache setup
+# In-memory cache (for testing)
 # ------------------------
-# redis = aioredis.from_url("redis://localhost", decode_responses=True)
-redis = []
+cache_store = {}
 
 def cache_key(model: str, text: str) -> str:
     h = hashlib.sha256(text.encode()).hexdigest()
     return f"cache:{model}:{h}"
 
 async def get_cached(model: str, text: str):
-    return await redis.get(cache_key(model, text))
+    return cache_store.get(cache_key(model, text))
 
 async def set_cache(model: str, text: str, value: str):
-    await redis.set(cache_key(model, text), value, ex=3600)  # 1 hour TTL
+    cache_store[cache_key(model, text)] = value
 
 # ------------------------
 # Batching queue
@@ -51,11 +52,11 @@ async def batch_worker():
                 item = await asyncio.wait_for(batch_queue.get(), timeout=BATCH_TIMEOUT)
                 batch.append(item)
         except asyncio.TimeoutError:
-            pass  # Timeout reached, process the batch
+            pass  # Timeout reached, process batch
 
         # Extract texts and model flags
         texts = [req['text'] for req in batch]
-        model_flag = batch[0]['model_flag']  # assume same model per batch for simplicity
+        model_flag = batch[0]['model_flag']  # assume same model per batch
 
         # Call model
         results = await route_to_model(model_flag, texts)
@@ -68,7 +69,7 @@ async def batch_worker():
 # ------------------------
 # Model routing
 # ------------------------
-async def route_to_model(model_flag: str, texts: list[str]) -> list[str]:
+async def route_to_model(model_flag: str, texts: List[str]) -> List[str]:
     if model_flag == "openai":
         return await call_openai(texts)
     else:
@@ -77,21 +78,17 @@ async def route_to_model(model_flag: str, texts: list[str]) -> list[str]:
 # ------------------------
 # OpenAI call
 # ------------------------
-async def call_openai(texts: list[str]) -> list[str]:
+async def call_openai(texts: List[str]) -> List[str]:
     results = []
     for t in texts:
-        resp = await openai.ChatCompletion.acreate(
-            model="gpt-4",
-            messages=[{"role": "user", "content": t}]
-        )
+        resp = await aclient.chat.completions.create(model="gpt-4", messages=[{"role": "user", "content": t}])
         results.append(resp.choices[0].message.content)
     return results
 
 # ------------------------
 # Local LLM call placeholder
 # ------------------------
-async def call_local_llm(texts: list[str]) -> list[str]:
-    # Replace this with your local LLM inference logic
+async def call_local_llm(texts: List[str]) -> List[str]:
     return [f"local model response for: {t}" for t in texts]
 
 # ------------------------
@@ -104,7 +101,7 @@ async def infer(req: InferenceRequest):
     if cached:
         return {"result": cached}
 
-    # Create a future for the batch worker to set result
+    # Create a future for batch worker
     loop = asyncio.get_running_loop()
     fut = loop.create_future()
 
