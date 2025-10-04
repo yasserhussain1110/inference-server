@@ -5,13 +5,14 @@ import asyncio
 import hashlib
 from typing import List
 from openai import AsyncOpenAI
-
-aclient = AsyncOpenAI()
+import os
 
 # ------------------------
 # FastAPI app
 # ------------------------
-app = FastAPI()
+
+app = FastAPI() 
+aclient = AsyncOpenAI(api_key=os.environ.get("OPENAI_API_KEY"))
 
 class InferenceRequest(BaseModel):
     text: str
