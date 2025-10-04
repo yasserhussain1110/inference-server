@@ -117,6 +117,11 @@ async def infer(req: InferenceRequest):
     result = await fut
     return {"result": result}
 
+
+@app.get("/test")
+async def hello(req: InferenceRequest):
+    return {"result": "hello"}
+
 # ------------------------
 # Startup event: start batch worker
 # ------------------------
